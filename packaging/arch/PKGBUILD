@@ -1,0 +1,42 @@
+# Maintainer: zukatooooo <https://github.com/zukatooooo>
+pkgname=knober
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Turn a keyboard volume knob into a pie-menu controller on Hyprland (Wayland)"
+arch=('any')
+url="https://github.com/zukatooooo/Knober"
+license=('unknown')  # TODO: pick a licence (e.g. MIT, GPL-3.0-or-later) and add a LICENSE file
+depends=(
+  'python'
+  'python-gobject'
+  'python-cairo'
+  'gtk4'
+  'gtk4-layer-shell'
+  'wireplumber'   # wpctl: volume and mute
+  'playerctl'     # @media actions
+  'systemd'       # busctl: can a player skip?
+)
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+optdepends=(
+  'ttf-nerd-fonts-symbols: icons for the menu nodes'
+  'hyprland: catching the knob keys (see README)'
+)
+source=("$pkgname::git+$url.git#tag=v$pkgver")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname"
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname"
+  PYTHONPATH=src python -c "import knober, knober.ctl; assert knober.__version__ == '$pkgver', knober.__version__"
+}
+
+package() {
+  cd "$pkgname"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 src/knober/config.example.toml "$pkgdir/usr/share/doc/$pkgname/config.example.toml"
+}

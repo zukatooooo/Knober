@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """knober — turn a keyboard volume knob into a menu controller.
 
 Daemon: shows a floating pie menu (bottom-right corner, layer-shell overlay).
@@ -14,6 +13,7 @@ optional; anything missing falls back to DEFAULTS below. The file is re-read eac
 time the menu opens, so edits apply without restarting.
 """
 import copy
+import ctypes.util
 import math
 import os
 import re
@@ -23,12 +23,17 @@ import sys
 import threading
 import tomllib
 
+from . import SOCKET_PATH, __version__
+
 # gtk4-layer-shell must be loaded before libwayland, which Python can't
 # guarantee -> re-exec ourselves once with LD_PRELOAD set.
-_LS_LIB = "/usr/lib/libgtk4-layer-shell.so"
-if _LS_LIB not in os.environ.get("LD_PRELOAD", ""):
+_LS_LIB = ctypes.util.find_library("gtk4-layer-shell")  # e.g. "libgtk4-layer-shell.so.0"
+if not _LS_LIB:
+    sys.exit("knober: gtk4-layer-shell is not installed (sudo pacman -S gtk4-layer-shell)")
+if "libgtk4-layer-shell" not in os.environ.get("LD_PRELOAD", ""):
     os.environ["LD_PRELOAD"] = (_LS_LIB + " " + os.environ.get("LD_PRELOAD", "")).strip()
-    os.execv(sys.executable, [sys.executable] + sys.argv)
+    # -m works however we were started: /usr/bin/knober, python -m knober, ./knober
+    os.execv(sys.executable, [sys.executable, "-m", "knober.daemon", *sys.argv[1:]])
 
 import gi
 
@@ -38,7 +43,6 @@ gi.require_version("PangoCairo", "1.0")
 import cairo  # noqa: E402
 from gi.repository import GLib, Gtk, Gdk, Pango, PangoCairo, Gtk4LayerShell as LayerShell  # noqa: E402
 
-SOCKET_PATH = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "knober.sock")
 CONFIG_PATH = os.path.expanduser(os.environ.get("KNOBER_CONFIG", "~/.config/knober/config.toml"))
 
 # Built-in defaults. config.toml only needs the keys you want to change.
@@ -556,5 +560,18 @@ class Knober(Gtk.Application):
             GLib.idle_add(self.handle, data)
 
 
+def main():
+    args = sys.argv[1:]
+    if args and args[0] in ("-V", "--version"):
+        print(f"knober {__version__}")
+        return 0
+    if args:
+        print("usage: knober [--version]\n\nStarts the knober menu daemon. "
+              "Send it knob events with knober-ctl.", file=sys.stderr if args[0] not in ("-h", "--help") else sys.stdout)
+        return 0 if args[0] in ("-h", "--help") else 2
+    GLib.set_prgname("knober")
+    return Knober().run(None)
+
+
 if __name__ == "__main__":
-    Knober().run(None)
+    sys.exit(main())

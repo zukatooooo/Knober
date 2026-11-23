@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "knober"
+dynamic = ["version"]
+description = "Turn a keyboard volume knob into a pie-menu controller on Hyprland (Wayland)"
+readme = "README.md"
+requires-python = ">=3.11"
+# System libraries (gtk4, gtk4-layer-shell, wpctl, playerctl) come from the
+# distro package; see packaging/arch/PKGBUILD.
+dependencies = ["PyGObject", "pycairo"]
+
+[project.urls]
+Homepage = "https://github.com/zukatooooo/Knober"
+
+[project.scripts]
+knober = "knober.daemon:main"
+knober-ctl = "knober.ctl:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "knober.__version__" }
+
+[tool.setuptools.package-data]
+knober = ["config.example.toml"]

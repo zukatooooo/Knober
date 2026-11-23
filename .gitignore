@@ -1,3 +1,12 @@
 __pycache__/
 *.pyc
 *.bak*
+
+# python build output
+build/
+dist/
+*.egg-info/
+
+# makepkg output
+packaging/arch/*/
+packaging/arch/*.pkg.tar.*
