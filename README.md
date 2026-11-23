@@ -32,6 +32,7 @@ under the pie.
 - [Troubleshooting](#troubleshooting)
 - [How it works](#how-it-works)
 - [Known limitations](#known-limitations)
+- [License](#license)
 
 ---
 
@@ -490,3 +491,12 @@ you can ignore them.
   the knob into a brightness or seek control.
 - **Drawing details:** a few values (spoke and arc transparency, background
   opacity, label offsets) are still fixed in `draw()`.
+
+---
+
+## License
+
+knober is free software, licensed under the
+[GNU General Public License v3.0 or later](LICENSE). You may use, study, share
+and change it. If you share a changed version, it must stay under the same
+licence, with its source code available.

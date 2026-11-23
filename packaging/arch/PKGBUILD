@@ -5,7 +5,7 @@ pkgrel=1
 pkgdesc="Turn a keyboard volume knob into a pie-menu controller on Hyprland (Wayland)"
 arch=('any')
 url="https://github.com/zukatooooo/Knober"
-license=('unknown')  # TODO: pick a licence (e.g. MIT, GPL-3.0-or-later) and add a LICENSE file
+license=('GPL-3.0-or-later')
 depends=(
   'python'
   'python-gobject'
