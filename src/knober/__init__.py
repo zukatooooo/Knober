@@ -4,7 +4,7 @@ Kept import-free on purpose: `knober-ctl` imports this on every knob click.
 """
 import os
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 _RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 SOCKET_PATH = os.path.join(_RUNTIME_DIR, "knober.sock")

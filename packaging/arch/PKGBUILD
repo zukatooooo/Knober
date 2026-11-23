@@ -1,6 +1,6 @@
 # Maintainer: zukatooooo <https://github.com/zukatooooo>
 pkgname=knober
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Turn a keyboard volume knob into a pie-menu controller on Hyprland (Wayland)"
 arch=('any')

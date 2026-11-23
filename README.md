@@ -64,7 +64,8 @@ cd Knober/packaging/arch
 makepkg -si
 ```
 
-This builds the version the PKGBUILD names (the `v0.1.0` tag) and installs:
+This builds the release the PKGBUILD names (its `pkgver`, from the matching
+`v…` tag on GitHub) and installs:
 
 | Path | What |
 |---|---|
