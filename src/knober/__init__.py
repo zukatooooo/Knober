@@ -6,4 +6,9 @@ import os
 
 __version__ = "0.1.0"
 
-SOCKET_PATH = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "knober.sock")
+_RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+SOCKET_PATH = os.path.join(_RUNTIME_DIR, "knober.sock")
+LOCK_PATH = os.path.join(_RUNTIME_DIR, "knober.lock")  # held by the running daemon
+
+STATE_DIR = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "knober")
+LOG_PATH = os.path.join(STATE_DIR, "knober.log")  # previous run is kept as knober.log.1

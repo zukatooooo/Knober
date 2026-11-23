@@ -14,16 +14,20 @@ time the menu opens, so edits apply without restarting.
 """
 import copy
 import ctypes.util
+import fcntl
 import math
 import os
 import re
+import signal
 import socket
 import subprocess
 import sys
 import threading
-import tomllib
+import time
 
-from . import SOCKET_PATH, __version__
+from . import LOCK_PATH, LOG_PATH, SOCKET_PATH, STATE_DIR, __version__
+from .config import (CONFIG_PATH, DEFAULTS, _weight, check_fonts, geometry, lint, load_config,
+                     paginate, read_user_config)
 
 # gtk4-layer-shell must be loaded before libwayland, which Python can't
 # guarantee -> re-exec ourselves once with LD_PRELOAD set.
@@ -43,71 +47,11 @@ gi.require_version("Gtk4LayerShell", "1.0")
 gi.require_version("PangoCairo", "1.0")
 import cairo  # noqa: E402
 from gi.repository import GLib, Gtk, Gdk, Pango, PangoCairo, Gtk4LayerShell as LayerShell  # noqa: E402
-
-CONFIG_PATH = os.path.expanduser(os.environ.get("KNOBER_CONFIG", "~/.config/knober/config.toml"))
-
-# Built-in defaults. config.toml only needs the keys you want to change.
-# Icons are Nerd Font glyphs. Items sit on the arc, left -> top (clockwise).
-DEFAULTS = {
-    "general": {
-        "auto_hide_ms": 6000,   # close the menu after this much inactivity
-        "volume_step": 5,       # % per knob click while the menu is closed
-        "volume_max": 100,      # % cap for volume up (>100 = allow boost)
-    },
-    "colors": {
-        # Palette source: pywal colours from Hyprland's colors.lua.
-        "pywal_file": "~/.config/hypr/colors.lua",
-        # "#rrggbb" overrides; "" = take it from the pywal palette.
-        "background": "",   # node fill        (pywal color0)
-        "line": "",         # node outlines    (pywal color3)
-        "accent": "",       # selected node    (pywal color4)
-        "text": "",         # icons and label  (pywal color7)
-        "dim": "",          # spokes, arc      (pywal color8)
-    },
-    "fonts": {
-        # weight: thin, ultralight, light, semilight, book, normal, medium, semibold,
-        #         bold, ultrabold, heavy, ultraheavy — or a number 100..1000
-        # style:  normal, italic, oblique
-        "icon_family": "Symbols Nerd Font",
-        "icon_scale": 0.85,         # icon size relative to circle radius
-        "icon_weight": "normal",
-        "label_family": "monospace",
-        "label_size": 10,           # points
-        "label_weight": "bold",
-        "label_style": "normal",
-        "label_uppercase": True,
-    },
-    "layout": {
-        "show_background": False,  # draw the bordered quarter-circle behind the nodes
-        "show_label": True,        # name of the selected node, next to the hub
-        "gap": 2,                  # Hyprland general.gaps_out: screen edge -> border
-        "border_width": 2,         # background border (Hyprland general.border_size)
-        "line_width": 2,           # spokes, guide arc and node circle outlines
-        "hub_inset": 56,           # hub centre distance from the screen corner
-        "hub_radius": 32,          # centre circle radius
-        "arc_radius": 180,         # radius of the arc the item circles sit on
-        "item_radius": 24,         # item circle radius
-        "pie_padding": 20,         # space between the furthest item and the border
-    },
-    "paging": {
-        # Max nodes on the arc per page, counting the previous/next page buttons
-        # (the centre circle is not counted). Must be at least 3.
-        "per_page": 6,
-        "show_page_number": True,   # "1/3" after the label when there are several pages
-        "prev_icon": "\U000F0141", "prev_label": "Previous page",
-        "next_icon": "\U000F0142", "next_label": "Next page",
-    },
-    # The circle in the pie's centre. Selected when the menu opens.
-    # cmd = "" -> pressing it just closes the menu.
-    "center": {"icon": "\U000F0156", "label": "Close", "cmd": ""},
-    "items": [
-        {"icon": "\U000F040E", "label": "Play / Pause", "cmd": "@media play-pause"},
-        {"icon": "\U000F04AD", "label": "Next track", "cmd": "@media next"},
-        {"icon": "\U000F04AE", "label": "Previous track", "cmd": "@media previous"},
-        {"icon": "\U000F0581", "label": "Mute speakers", "cmd": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"},
-        {"icon": "\U000F036D", "label": "Mute mic", "cmd": "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"},
-    ],
-}
+try:  # GLib >= 2.80 moved unix signal handling to GLibUnix
+    from gi.repository import GLibUnix  # noqa: E402
+    _signal_add = GLibUnix.signal_add
+except ImportError:
+    _signal_add = GLib.unix_signal_add
 
 # pywal colour slot used for each role when no override is given
 _PYWAL_ROLE = {"background": "color0", "line": "color3", "accent": "color4", "text": "color7", "dim": "color8"}
@@ -123,115 +67,22 @@ window.knober, window.knober.background {
 """
 
 
-# ---------------------------------------------------------------- config
+# ---------------------------------------------------------------- drawing helpers
 
-def _merge(base, over):
-    for k, v in over.items():
-        if isinstance(v, dict) and isinstance(base.get(k), dict):
-            _merge(base[k], v)
-        else:
-            base[k] = v
-    return base
-
-
-def load_config():
-    """-> (config, error). On a broken file returns (None, message)."""
-    cfg = copy.deepcopy(DEFAULTS)
-    try:
-        with open(CONFIG_PATH, "rb") as f:
-            user = tomllib.load(f)
-    except FileNotFoundError:
-        return cfg, None
-    except (tomllib.TOMLDecodeError, OSError) as e:
-        return None, f"{CONFIG_PATH}: {e}"
-    _merge(cfg, user)
-    items = cfg["items"]
-    if not isinstance(items, list) or not all(isinstance(i, dict) and "label" in i for i in items):
-        return None, f"{CONFIG_PATH}: every [[items]] entry needs at least a label"
-    F = cfg["fonts"]
-    for key in ("label_size", "icon_scale"):  # these would break drawing, so refuse them
-        if not isinstance(F[key], (int, float)) or isinstance(F[key], bool) or F[key] <= 0:
-            return None, f"{CONFIG_PATH}: [fonts] {key} must be a positive number, got {F[key]!r}"
-    per_page = cfg["paging"]["per_page"]
-    if not isinstance(per_page, int) or isinstance(per_page, bool) or per_page < 3:
-        # 3 = prev + one action + next on a middle page; fewer can't make progress
-        return None, f"{CONFIG_PATH}: [paging] per_page must be a whole number >= 3, got {per_page!r}"
-    return cfg, None
-
-
-def paginate(items, per_page):
-    """Split items into pages -> [(has_prev, page_items, has_next)].
-    first page: up to per_page-1 items + next; middle: prev + per_page-2 items + next;
-    last page: prev + the rest. Everything fits -> one page, no buttons."""
-    pages, i, n = [], 0, len(items)
-    while i < n:
-        has_prev = bool(pages)
-        room = per_page - has_prev
-        if n - i <= room:  # the rest fits: this is the last page
-            pages.append((has_prev, items[i:], False))
-            break
-        take = room - 1    # leave a slot for the next button
-        pages.append((has_prev, items[i:i + take], True))
-        i += take
-    return pages or [(False, [], False)]
-
-
-def geometry(L):
-    """(pie_radius, window_size). The background is an exact 90deg wedge whose square corner
-    sits in the screen corner, `gap` px in from both edges, like a tiled window. Its radius
-    just clears the furthest possible item (the one at 225deg)."""
-    hub_from_corner = (L["hub_inset"] - L["gap"]) * math.sqrt(2)
-    pie_r = math.ceil(hub_from_corner + L["arc_radius"] + L["item_radius"] + L["pie_padding"])
-    return pie_r, L["gap"] + pie_r
-
-
-_WEIGHTS = {"thin": 100, "ultralight": 200, "extralight": 200, "light": 300, "semilight": 350,
-            "book": 380, "normal": 400, "regular": 400, "medium": 500, "semibold": 600,
-            "demibold": 600, "bold": 700, "ultrabold": 800, "extrabold": 800, "heavy": 900,
-            "black": 900, "ultraheavy": 1000}
-_STYLES = {"normal": Pango.Style.NORMAL, "italic": Pango.Style.ITALIC, "oblique": Pango.Style.OBLIQUE}
-
-
-def _weight(v):
-    """'bold' / 700 / "650" -> int 100..1000, or None if invalid."""
-    if isinstance(v, str):
-        v = _WEIGHTS.get(v.strip().lower().replace("-", "").replace(" ", ""), v)
-    try:
-        v = int(v)
-    except (TypeError, ValueError):
-        return None
-    return v if 100 <= v <= 1000 else None
+_PANGO_STYLES = {"normal": Pango.Style.NORMAL, "italic": Pango.Style.ITALIC, "oblique": Pango.Style.OBLIQUE}
 
 
 def make_font(family, weight="normal", style="normal", size_pt=None, size_px=None):
     # Pango's set_weight() only accepts its named steps; the string form takes any 100..1000.
     desc = Pango.FontDescription.from_string(f"weight={_weight(weight) or 400}")
     desc.set_family(family)
-    desc.set_style(_STYLES.get(str(style).lower(), Pango.Style.NORMAL))
+    desc.set_style(_PANGO_STYLES.get(str(style).lower(), Pango.Style.NORMAL))
     if size_px is not None:
         desc.set_absolute_size(max(1, size_px) * Pango.SCALE)
     else:
         desc.set_size(int(max(1, size_pt) * Pango.SCALE))
     return desc
 
-
-def check_fonts(F):
-    """Problems with the [fonts] section, as human-readable strings (empty = all good)."""
-    problems = []
-    families = {f.get_name().lower() for f in PangoCairo.FontMap.get_default().list_families()}
-    generic = {"monospace", "sans", "sans-serif", "serif", "system-ui"}
-    for key in ("icon_family", "label_family"):
-        if F[key].lower() not in families | generic:
-            problems.append(f"{key} = {F[key]!r} is not installed (using a fallback font; see `fc-list : family`)")
-    for key in ("icon_weight", "label_weight"):
-        if _weight(F[key]) is None:
-            problems.append(f"{key} = {F[key]!r} is not a weight name or a number 100..1000 (using normal)")
-    if str(F["label_style"]).lower() not in _STYLES:
-        problems.append(f"label_style = {F['label_style']!r} must be normal, italic or oblique (using normal)")
-    for key in ("label_size", "icon_scale"):
-        if not isinstance(F[key], (int, float)) or F[key] <= 0:
-            problems.append(f"{key} = {F[key]!r} must be a positive number")
-    return problems
 
 
 def _hex(v):
@@ -290,7 +141,7 @@ def media(action):
         # (e.g. a YouTube video in Firefox reports CanGoNext=false)
         ordered = playing + [n for n in _last_paused if n in names] + names
         target = [n for n in ordered if _can(n, prop)][:1]
-        print(f"knober: {action} -> {target or 'no player can ' + action}", flush=True)
+        log(f"{action} -> {target or 'no player can ' + action}")
         for n in target:
             subprocess.run(["playerctl", "-p", n, action])
 
@@ -327,14 +178,19 @@ class Knober(Gtk.Application):
         """Re-read config.toml. A broken file keeps the last good config."""
         cfg, err = load_config()
         if err:
-            print(f"knober: config error, keeping previous settings: {err}", flush=True)
+            log(f"config error, keeping previous settings: {err}")
             if self.cfg is None:
                 cfg = copy.deepcopy(DEFAULTS)
             else:
                 return
         if cfg != self.cfg:  # only warn when something changed, not on every menu open
             for p in check_fonts(cfg["fonts"]):
-                print(f"knober: [fonts] {p}", flush=True)
+                log(f"config warning: [fonts] {p}")
+            try:
+                for w in lint(read_user_config()):
+                    log(f"config warning: {w}")
+            except Exception:  # unreadable file was already reported above
+                pass
         self.cfg = cfg
         self.pages = paginate(cfg["items"], cfg["paging"]["per_page"])
         self.page = min(self.page, len(self.pages) - 1)
@@ -367,6 +223,8 @@ class Knober(Gtk.Application):
 
     # ---------- UI ----------
     def do_activate(self):
+        if self.win:  # activated again (e.g. via D-Bus): we already have our window
+            return
         provider = Gtk.CssProvider()
         if hasattr(provider, "load_from_string"):   # GTK >= 4.12
             provider.load_from_string(CSS)
@@ -560,6 +418,34 @@ class Knober(Gtk.Application):
             data = srv.recv(64).decode().strip()
             GLib.idle_add(self.handle, data)
 
+    def shutdown(self):
+        """SIGTERM / SIGINT (knober stop, Ctrl+C): quit cleanly and remove our socket."""
+        log("stopping")
+        try:
+            os.unlink(SOCKET_PATH)
+        except OSError:
+            pass
+        self.quit()
+        return GLib.SOURCE_REMOVE
+
+
+def log(msg):
+    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}", flush=True)
+
+
+def _log_to_file():
+    """When not attached to a terminal (Hyprland autostart, `knober start`), send all
+    output, including GTK's own warnings, to LOG_PATH. The previous run is kept as .1."""
+    if sys.stderr.isatty():
+        return
+    os.makedirs(STATE_DIR, exist_ok=True)
+    if os.path.exists(LOG_PATH):
+        os.replace(LOG_PATH, LOG_PATH + ".1")
+    fd = os.open(LOG_PATH, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    os.dup2(fd, 1)
+    os.dup2(fd, 2)
+    os.close(fd)
+
 
 def main():
     args = sys.argv[1:]
@@ -570,8 +456,22 @@ def main():
         print("usage: knober [--version]\n\nStarts the knober menu daemon. "
               "Send it knob events with knober-ctl.", file=sys.stderr if args[0] not in ("-h", "--help") else sys.stdout)
         return 0 if args[0] in ("-h", "--help") else 2
+    # One daemon per session. The lock is held until the process exits (even if it
+    # crashes), so unlike checking the process list this can't race with a second
+    # copy starting at the same moment.
+    lock = open(LOCK_PATH, "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("knober is already running; use `knober restart` to replace it", file=sys.stderr)
+        return 0
+    _log_to_file()
+    log(f"knober {__version__} started (pid {os.getpid()}, config {CONFIG_PATH})")
     GLib.set_prgname("knober")
-    return Knober().run(None)
+    app = Knober()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        _signal_add(GLib.PRIORITY_DEFAULT, sig, app.shutdown)
+    return app.run(None)
 
 
 if __name__ == "__main__":

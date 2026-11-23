@@ -18,7 +18,7 @@ dependencies = ["PyGObject", "pycairo"]
 Homepage = "https://github.com/zukatooooo/Knober"
 
 [project.scripts]
-knober = "knober.daemon:main"
+knober = "knober.cli:main"
 knober-ctl = "knober.ctl:main"
 
 [tool.setuptools.dynamic]

@@ -2,4 +2,4 @@
 # Run knober-ctl straight from this source checkout, without installing.
 # (When installed as a package, use /usr/bin/knober-ctl instead.)
 here=$(dirname "$(readlink -f "$0")")
-PYTHONPATH="$here/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m knober.ctl "$@"
+PYTHONPATH="$here/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -P -m knober.ctl "$@"

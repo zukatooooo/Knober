@@ -106,19 +106,19 @@ Then run `hyprctl reload`.
 ### 4. Create your config (optional)
 
 ```sh
-mkdir -p ~/.config/knober
-cp /usr/share/doc/knober/config.example.toml ~/.config/knober/config.toml
+knober config init
 ```
 
-Without a config file, knober uses the built-in defaults, which are the same as
-the example.
+This copies the commented example to `~/.config/knober/config.toml`. Without a
+config file, knober uses the built-in defaults, which are the same as the example.
 
 ### 5. Start it now
 
 The autostart line only runs at login. To start knober in the current session:
 
 ```sh
-knober &
+knober start
+knober status    # check it's running
 ```
 
 ### Running without installing (development)
@@ -160,12 +160,12 @@ set the `KNOBER_CONFIG` environment variable.
 - **Every key is optional.** Keep only what you want to change; anything missing
   falls back to the built-in default.
 - **No restart needed.** The file is re-read every time the menu opens, or when
-  you run `knober-ctl reload`.
+  you run `knober reload`.
 - **Mistakes don't break anything.** A file that can't be read (bad TOML, invalid
   `per_page`, a size of 0 or less) is rejected, and knober keeps its last working
   settings. Smaller problems (a font that isn't installed, an unknown weight or
-  style) fall back to a default. Either way, a message is printed to knober's
-  output (see [Troubleshooting](#troubleshooting)).
+  style) fall back to a default. Either way, knober writes a message to its log
+  (`knober logs`). Run `knober config check` to see them right away.
 
 The file uses [TOML](https://toml.io). Text goes in quotes, `true`/`false` are
 lowercase, and `#` starts a comment.
@@ -345,56 +345,125 @@ counted toward `per_page`.
 
 ## Commands
 
-`knober-ctl <command>` sends one command to the running knober:
+Everything goes through the `knober` command. `knober --help` lists it all, and
+`knober COMMAND --help` explains one command.
 
-| Command | Effect |
+### Running knober
+
+| Command | What it does |
 |---|---|
-| `up` | Menu closed: volume up. Menu open: select the next node. |
-| `down` | Menu closed: volume down. Menu open: select the previous node. |
-| `press` | Menu closed: open it. Menu open: run the selected node. |
-| `close` | Close the menu |
-| `reload` | Re-read the config file now |
+| `knober` | Run the menu program in the foreground. Hyprland's autostart line uses this. |
+| `knober daemon [--replace]` | Same, spelled out. `--replace` stops a running copy first. |
+| `knober start` | Start it in the background and wait until it's ready |
+| `knober stop` | Stop it (cleanly; force-kills after 3 seconds if it hangs) |
+| `knober restart` | Stop and start again, for example after updating knober |
+| `knober status` | Whether it's running (process, start time), and whether the config is OK |
 
-Hyprland calls `up`, `down` and `press` for you. `close` and `reload` are for
-scripts or for use by hand.
+Only one copy runs at a time. Starting a second one just says
+`knober is already running` and exits.
 
-If knober isn't running, `knober-ctl` falls back to the plain behaviour:
-`up`/`down` change the volume by 5% and `press` toggles mute. The knob never goes
-dead.
+`knober status` exits with code 0 when knober is running and 3 when it isn't, so
+scripts can test it.
+
+### Knob events
+
+| Command | Menu closed | Menu open |
+|---|---|---|
+| `knober up` | Volume up | Select the next node |
+| `knober down` | Volume down | Select the previous node |
+| `knober press` | Open the menu | Run the selected node |
+| `knober close` | Nothing | Close the menu |
+| `knober reload` | Re-read the config file now | Same |
+
+`knober-ctl up` (and so on) does exactly the same thing. It's a separate,
+minimal command because Hyprland runs it on every knob click, so it must start
+as fast as possible. Use `knober-ctl` in the Hyprland binds and `knober` by hand.
+
+If knober isn't running, `up`/`down` still change the volume (using
+`volume_step` and `volume_max` from your config) and `press` toggles mute. The
+knob never goes dead.
+
+### Logs
+
+| Command | What it does |
+|---|---|
+| `knober logs` | Show the last 50 lines of the log |
+| `knober logs -n 200` | Show the last 200 lines |
+| `knober logs -f` | Keep showing new lines as they arrive (Ctrl+C to stop) |
+
+When knober runs without a terminal (from Hyprland's autostart or
+`knober start`), everything it prints goes to `~/.local/state/knober/knober.log`:
+start-up, config errors and warnings, which player `@media next` picked, and
+GTK's own warnings. Each start begins a new log, and the previous run is kept as
+`knober.log.1`. When you run `knober` in a terminal, messages appear there
+instead.
+
+### Config helpers
+
+| Command | What it does |
+|---|---|
+| `knober config path` | Print where the config file is |
+| `knober config init` | Create it from the commented example. Refuses to overwrite an existing one. |
+| `knober config init --force` | Overwrite it with the example, keeping the old one as `config.toml.bak` |
+| `knober config edit` | Open it in `$VISUAL` / `$EDITOR` (or nano/vim), creating it first if needed |
+| `knober config check` | Validate it and show how the nodes split into pages |
+
+`knober config check` reports:
+
+- **Errors** that make knober ignore the file (bad TOML, invalid `per_page`, a
+  size of 0 or less). Exit code 1.
+- **Warnings** for things that load but are probably mistakes: misspelled keys
+  or sections (`lable`, `[layuot]`), unknown `@` actions (`@media play-pauze`),
+  fonts that aren't installed, invalid weights or styles.
+- A summary: number of nodes, the page split, and the menu size.
+
+```
+$ knober config check
+checking /home/you/.config/knober/config.toml
+! warning: [[items]] #7 (Lock): unknown key 'lable'
+✓ 7 nodes, 2 pages (max 6 on the arc, counting page buttons):
+    page 1: Play / Pause  ·  Next track  ·  Previous track  ·  Mute speakers  ·  Mute mic  ·  next ›
+    page 2: ‹ prev  ·  Screenshot  ·  Lock
+✓ menu window: 303×303 px in the bottom-right corner
+✓ config OK, with 1 warning
+```
+
+The running menu also writes these warnings to its log whenever the config
+changes.
 
 ---
 
 ## Troubleshooting
 
-### See knober's messages
-
-The autostarted copy has no visible output. To see messages (config errors,
-font warnings, which player `@media next` picked), restart knober in a terminal:
+### First steps
 
 ```sh
-pkill -f knober.daemon
-knober
+knober status          # running? config OK?
+knober config check    # what exactly is wrong with the config?
+knober logs            # what did knober say?
 ```
 
-Only one copy can run at a time. If one is already running, a second one exits
-immediately without a message. So if your code changes don't seem to take
-effect, check that the old copy really stopped:
+To watch messages live while you use the knob, run `knober logs -f` in a
+terminal, or run knober itself in the foreground with `knober daemon --replace`.
 
-```sh
-ps -eo pid,lstart,args | grep '[k]nober.daemon'
-```
+### Changes don't take effect
+
+- **Config changes** apply the next time the menu opens. If they don't, the file
+  probably has an error: run `knober config check`.
+- **After updating knober**, run `knober restart`. The running copy keeps using
+  the old code until it is restarted.
 
 ### Pressing the knob doesn't open the menu
 
-- Check that knober is running (the command above).
+- Check that knober is running: `knober status`.
 - Check the key name with `wev`. If it isn't `XF86AudioMute`, change the third
   bind in `hyprland.lua`.
-- Run `knober-ctl press` by hand. If the menu opens, the problem is the
+- Run `knober press` by hand. If the menu opens, the problem is the
   Hyprland bind, not knober.
 
 ### Next / Previous track does nothing
 
-- Run knober in a terminal and use the node. It prints `next -> ['spotify']` or
+- Use the node, then run `knober logs`. It shows `next -> ['spotify']` or
   `no player can next`.
 - `no player can next` means no open player supports skipping right now. Common
   causes: only a YouTube video is open, or Spotify is playing an ad.
@@ -442,6 +511,14 @@ you can ignore them.
   destroyed, so opening it is instant.
 - **`knober-ctl`** (`src/knober/ctl.py`) is a tiny client that sends one word to that socket. It is
   started on every knob click, so it imports nothing heavy.
+- **`knober`** (`src/knober/cli.py`) is the full command line. Each subcommand
+  only imports what it needs, so `knober status` doesn't load GTK.
+- **One copy at a time:** the daemon holds an exclusive lock on
+  `$XDG_RUNTIME_DIR/knober.lock` for as long as it runs. The lock is released
+  even if it crashes, and two copies starting at the same moment can't both get
+  it. `knober status`/`stop` find the daemon by its command line in `/proc`.
+- **Stopping:** `knober stop` sends SIGTERM. The daemon removes its socket and
+  quits; if it doesn't exit within 3 seconds, it is killed.
 - **LD_PRELOAD:** gtk4-layer-shell must load before `libwayland-client`, which
   Python can't guarantee. The daemon therefore finds the library by name and
   re-launches itself once (as `python -P -m knober.daemon`) with it in `LD_PRELOAD`.
@@ -453,30 +530,37 @@ you can ignore them.
 
 | File | Purpose |
 |---|---|
-| `src/knober/daemon.py` | The background program: menu, drawing, config, actions |
-| `src/knober/ctl.py` | `knober-ctl`: the client called from the Hyprland binds |
-| `src/knober/__init__.py` | Version number and socket path (shared by both) |
+| `src/knober/daemon.py` | The background program: menu, drawing, actions |
+| `src/knober/config.py` | Defaults, loading and checking the config, paging maths (no GTK) |
+| `src/knober/cli.py` | The `knober` command and all its subcommands |
+| `src/knober/ctl.py` | `knober-ctl`: the minimal client called from the Hyprland binds |
+| `src/knober/proc.py` | Finding running daemons, process start times |
+| `src/knober/__init__.py` | Version number and the socket, lock and log paths |
 | `src/knober/config.example.toml` | Commented reference config with every setting |
-| `knober`, `knober-ctl` | Launchers to run from a checkout without installing |
+| `knober`, `knober-ctl` (repo root) | Launchers to run from a checkout without installing |
 | `pyproject.toml` | Python package metadata and the two commands |
 | `packaging/arch/PKGBUILD` | Arch Linux package recipe |
 | `~/.config/knober/config.toml` | Your settings (not in this repo) |
+| `~/.local/state/knober/knober.log` | The log (`knober logs`) |
 
-### Code map (`src/knober/daemon.py`)
+### Code map
 
 | Part | What it does |
 |---|---|
-| `DEFAULTS` | Every setting and its default value |
-| `load_config()`, `_merge()` | Read the TOML file, merge it over the defaults, validate it |
-| `paginate()` | Split the items into pages with Previous/Next buttons |
-| `geometry()` | Work out the pie radius and window size from `[layout]` |
-| `make_font()`, `check_fonts()` | Build Pango fonts and warn about bad font settings |
-| `load_colors()` | Read pywal colours and apply overrides |
-| `media()`, `_can()` | The `@media` actions: choose the right player |
-| `run()` | Run a node's command |
-| `Knober.handle()` | Knob logic: what `up`, `down`, `press`, `close` and `reload` do |
-| `Knober.build_page()`, `turn_page()` | Which nodes are on screen; page turns |
-| `Knober.positions()`, `draw()` | Where the circles go, and drawing them |
+| `config.DEFAULTS` | Every setting and its default value |
+| `config.load_config()`, `_merge()` | Read the TOML file, merge it over the defaults, validate it |
+| `config.lint()` | Find unknown keys and actions (typos) |
+| `config.paginate()` | Split the items into pages with Previous/Next buttons |
+| `config.geometry()` | Work out the pie radius and window size from `[layout]` |
+| `config.check_fonts()`, `daemon.make_font()` | Warn about bad font settings; build Pango fonts |
+| `daemon.load_colors()` | Read pywal colours and apply overrides |
+| `daemon.media()`, `_can()` | The `@media` actions: choose the right player |
+| `daemon.run()` | Run a node's command |
+| `daemon.Knober.handle()` | Knob logic: what `up`, `down`, `press`, `close` and `reload` do |
+| `daemon.Knober.build_page()`, `turn_page()` | Which nodes are on screen; page turns |
+| `daemon.Knober.positions()`, `draw()` | Where the circles go, and drawing them |
+| `daemon.main()` | Single-instance lock, log file, signal handling, start the app |
+| `cli.build_parser()` | Every `knober` subcommand and its options |
 
 ---
 
@@ -485,9 +569,6 @@ you can ignore them.
 - **Corner:** the menu is always in the bottom-right corner, fanning from left to
   up. The corner, the arc angles and the window margins are not yet configurable.
 - **Rotation direction:** clockwise always moves forward through the nodes.
-- **Fallback volume:** when knober isn't running, `knober-ctl` uses a fixed 5%
-  step and 100% cap. It does not read `volume_step` / `volume_max` from the
-  config.
 - **Volume commands:** volume always uses `wpctl` on the default output.
 - **One command per node:** there are no submenus, and no "dial" nodes that turn
   the knob into a brightness or seek control.

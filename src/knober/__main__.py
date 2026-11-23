@@ -1,4 +1,6 @@
-"""`python -m knober` starts the daemon."""
-from .daemon import main
+"""`python -m knober` is the `knober` command."""
+import sys
 
-main()
+from .cli import main
+
+sys.exit(main())
