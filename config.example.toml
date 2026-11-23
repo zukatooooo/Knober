@@ -1,0 +1,107 @@
+# knober config — copy to ~/.config/knober/config.toml
+# Every key is optional: delete anything you don't want to change.
+# The file is re-read every time the menu opens (or: knober-ctl reload).
+# If the file has an error, knober keeps the last working settings.
+
+[general]
+auto_hide_ms = 6000   # close the menu after this much inactivity (ms)
+volume_step  = 5      # % per knob click while the menu is closed
+volume_max   = 100    # % cap for volume up (e.g. 150 to allow boost)
+
+[colors]
+# By default colours come from your pywal palette in Hyprland's colors.lua,
+# so the menu follows your wallpaper. Set "#rrggbb" to override one role.
+pywal_file = "~/.config/hypr/colors.lua"
+background = ""   # node fill        (pywal color0)
+line       = ""   # node outlines    (pywal color3)
+accent     = ""   # selected node    (pywal color4)
+text       = ""   # icons and label  (pywal color7)
+dim        = ""   # spokes and arc   (pywal color8)
+
+[fonts]
+# family : any installed font — list them with:  fc-list : family
+# weight : thin, ultralight, light, semilight, book, normal, medium, semibold,
+#          bold, ultrabold, heavy, ultraheavy — or any number from 100 to 1000
+# style  : normal, italic, oblique
+icon_family     = "Symbols Nerd Font"   # must contain the icon glyphs (a Nerd Font)
+icon_scale      = 0.85                  # icon size relative to the circle radius
+icon_weight     = "normal"
+label_family    = "monospace"           # text under the pie (selected node's name)
+label_size      = 10                    # points
+label_weight    = "bold"
+label_style     = "normal"
+label_uppercase = true
+
+[layout]
+show_background = false  # bordered quarter-circle behind the nodes
+show_label      = true   # name of the selected node, next to the hub
+gap             = 2      # screen edge -> background border (Hyprland gaps_out)
+border_width    = 2      # background border (Hyprland border_size)
+line_width      = 2      # spokes, arc and circle outlines
+hub_inset       = 56     # hub centre distance from the screen corner
+hub_radius      = 32     # centre circle size
+arc_radius      = 180    # how far the nodes sit from the hub (raise if they overlap)
+item_radius     = 24     # node circle size
+pie_padding     = 20     # space between the furthest node and the border
+
+[paging]
+# Max nodes on the arc per page, counting the previous/next page buttons
+# (the centre circle is not counted). Minimum 3.
+#   first page : actions + next      middle pages : prev + actions + next
+#   last page  : prev + actions      everything fits : no buttons at all
+per_page         = 6
+show_page_number = true           # "1/3" after the label when there are several pages
+prev_icon        = "\U000F0141"   # nf-md-chevron_left
+prev_label       = "Previous page"
+next_icon        = "\U000F0142"   # nf-md-chevron_right
+next_label       = "Next page"
+
+# The circle in the centre. It is selected when the menu opens.
+# cmd = "" means pressing it just closes the menu.
+[center]
+icon  = "\U000F0156"   # nf-md-close
+label = "Close"
+cmd   = ""
+
+# Menu nodes, placed on the arc from left (first) to top (last).
+# icon : a Nerd Font glyph — paste it, or write its code as "\U000Fxxxx"
+#        (look codes up at https://www.nerdfonts.com/cheat-sheet)
+# cmd  : any shell command, or one of the built-ins:
+#          "@media play-pause"  "@media next"  "@media previous"
+#        (these pick the right player when several are open)
+
+[[items]]
+icon  = "\U000F040E"   # nf-md-play_pause
+label = "Play / Pause"
+cmd   = "@media play-pause"
+
+[[items]]
+icon  = "\U000F04AD"   # nf-md-skip_next
+label = "Next track"
+cmd   = "@media next"
+
+[[items]]
+icon  = "\U000F04AE"   # nf-md-skip_previous
+label = "Previous track"
+cmd   = "@media previous"
+
+[[items]]
+icon  = "\U000F0581"   # nf-md-volume_off
+label = "Mute speakers"
+cmd   = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+
+[[items]]
+icon  = "\U000F036D"   # nf-md-microphone_off
+label = "Mute mic"
+cmd   = "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
+
+# More examples:
+# [[items]]
+# icon  = "\U000F0100"   # nf-md-camera
+# label = "Screenshot"
+# cmd   = "grim -g \"$(slurp)\" ~/Pictures/shot-$(date +%s).png"
+#
+# [[items]]
+# icon  = "\U000F033E"   # nf-md-lock
+# label = "Lock"
+# cmd   = "hyprlock"
