@@ -33,7 +33,8 @@ if not _LS_LIB:
 if "libgtk4-layer-shell" not in os.environ.get("LD_PRELOAD", ""):
     os.environ["LD_PRELOAD"] = (_LS_LIB + " " + os.environ.get("LD_PRELOAD", "")).strip()
     # -m works however we were started: /usr/bin/knober, python -m knober, ./knober
-    os.execv(sys.executable, [sys.executable, "-m", "knober.daemon", *sys.argv[1:]])
+    # -P: never pick up a "knober" folder from the current directory instead of the install
+    os.execv(sys.executable, [sys.executable, "-P", "-m", "knober.daemon", *sys.argv[1:]])
 
 import gi
 

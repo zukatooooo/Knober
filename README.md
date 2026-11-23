@@ -444,8 +444,10 @@ you can ignore them.
   started on every knob click, so it imports nothing heavy.
 - **LD_PRELOAD:** gtk4-layer-shell must load before `libwayland-client`, which
   Python can't guarantee. The daemon therefore finds the library by name and
-  re-launches itself once (as `python -m knober.daemon`) with it in `LD_PRELOAD`.
-  That is why the process shows up as `python3 -m knober.daemon`.
+  re-launches itself once (as `python -P -m knober.daemon`) with it in `LD_PRELOAD`.
+  That is why the process shows up as `python -P -m knober.daemon`. (`-P` stops
+  Python from loading a `knober` folder in the current directory instead of the
+  installed copy.)
 
 ### Files
 
