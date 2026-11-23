@@ -10,8 +10,10 @@ depends=(
   'python'
   'python-gobject'
   'python-cairo'
+  'glib2'
   'gtk4'
   'gtk4-layer-shell'
+  'pango'
   'wireplumber'   # wpctl: volume and mute
   'playerctl'     # @media actions
   'systemd'       # busctl: can a player skip?

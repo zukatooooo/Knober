@@ -39,68 +39,100 @@ under the pie.
 
 | Package (Arch) | Used for |
 |---|---|
-| `hyprland` | Catches the knob's keys and starts the menu program |
+| `hyprland` | Catches the knob's keys |
 | `python` 3.11 or newer | Runs knober (needs the built-in `tomllib`) |
-| `python-gobject`, `gtk4` | Draws the menu |
+| `python-gobject`, `python-cairo`, `gtk4`, `pango` | Draws the menu |
 | `gtk4-layer-shell` | Puts the menu in a screen corner as an overlay on Wayland |
 | `wireplumber` (`wpctl`) | Volume and mute |
 | `playerctl` | Music control (play, pause, next, previous) |
 | `systemd` (`busctl`) | Checks whether a player can skip tracks |
-| A Nerd Font, such as `ttf-nerd-fonts-symbols` | Node icons |
+| A Nerd Font, such as `ttf-nerd-fonts-symbols` | Node icons (optional, but nodes show boxes without one) |
 
-```sh
-sudo pacman -S python-gobject gtk4 gtk4-layer-shell wireplumber playerctl ttf-nerd-fonts-symbols
-```
+When you install the Arch package, pacman installs all of these except
+Hyprland and the font for you.
 
 ---
 
 ## Installation
 
-### 1. Find out what your knob sends
+### 1. Install the package (Arch Linux)
+
+```sh
+git clone https://github.com/zukatooooo/Knober.git
+cd Knober/packaging/arch
+makepkg -si
+```
+
+This builds the version the PKGBUILD names (the `v0.1.0` tag) and installs:
+
+| Path | What |
+|---|---|
+| `/usr/bin/knober` | The menu program (daemon) |
+| `/usr/bin/knober-ctl` | Sends knob events to it |
+| `/usr/share/doc/knober/config.example.toml` | Commented example config |
+| `/usr/share/doc/knober/README.md` | This file |
+
+Check it worked with `knober --version`. To remove it: `sudo pacman -R knober`.
+
+### 2. Find out what your knob sends
 
 Most knobs send `XF86AudioRaiseVolume` / `XF86AudioLowerVolume` when turned and
 `XF86AudioMute` when pressed. To check, run `wev` (`sudo pacman -S wev`), then
 turn and press the knob and note the key names.
 
-### 2. Point Hyprland at knober
+### 3. Point Hyprland at knober
 
 In `~/.config/hypr/hyprland.lua`, start knober at login:
 
 ```lua
 hl.on("hyprland.start", function ()
   -- ... your other autostart programs ...
-  hl.exec_cmd("/home/zukaabsandze/knober/knober.py")
+  hl.exec_cmd("knober")
 end)
 ```
 
 Bind the knob to `knober-ctl`. These replace the usual volume and mute binds:
 
 ```lua
-hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("/home/zukaabsandze/knober/knober-ctl up"),    { locked = true, repeating = true })
-hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("/home/zukaabsandze/knober/knober-ctl down"),  { locked = true, repeating = true })
-hl.bind("XF86AudioMute",        hl.dsp.exec_cmd("/home/zukaabsandze/knober/knober-ctl press"), { locked = true })
+hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("knober-ctl up"),    { locked = true, repeating = true })
+hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("knober-ctl down"),  { locked = true, repeating = true })
+hl.bind("XF86AudioMute",        hl.dsp.exec_cmd("knober-ctl press"), { locked = true })
 ```
 
 If `wev` showed a different key name for the press, use it in the last line.
-Adjust the paths if you keep the folder somewhere else. Then run `hyprctl reload`.
+Then run `hyprctl reload`.
 
-### 3. Create your config (optional)
+### 4. Create your config (optional)
 
 ```sh
 mkdir -p ~/.config/knober
-cp config.example.toml ~/.config/knober/config.toml
+cp /usr/share/doc/knober/config.example.toml ~/.config/knober/config.toml
 ```
 
 Without a config file, knober uses the built-in defaults, which are the same as
-`config.example.toml`.
+the example.
 
-### 4. Start it now
+### 5. Start it now
 
 The autostart line only runs at login. To start knober in the current session:
 
 ```sh
-~/knober/knober.py &
+knober &
 ```
+
+### Running without installing (development)
+
+From a clone of the repository, `./knober` and `./knober-ctl` run the code in
+`src/` directly, with no install needed. Use their full paths in the Hyprland
+binds (for example `~/Knober/knober-ctl up`) to test changes before packaging
+them. `python -m knober` also works when `src` is on `PYTHONPATH`.
+
+### Releasing a new version
+
+1. Bump `__version__` in `src/knober/__init__.py` and `pkgver` in
+   `packaging/arch/PKGBUILD` (reset `pkgrel` to 1).
+2. Commit, then tag and push: `git tag v0.2.0 && git push origin main v0.2.0`.
+3. Rebuild and install: `cd packaging/arch && makepkg -si`.
 
 ---
 
@@ -218,7 +250,8 @@ Previous + 4 items + Next, and page 3 has Previous + 3 items.
 
 ### All settings
 
-Defaults are shown. They are identical to `config.example.toml`.
+Defaults are shown. They are identical to `config.example.toml`
+(installed at `/usr/share/doc/knober/config.example.toml`).
 
 #### `[general]`
 
@@ -338,8 +371,8 @@ The autostarted copy has no visible output. To see messages (config errors,
 font warnings, which player `@media next` picked), restart knober in a terminal:
 
 ```sh
-pkill -f knober.py
-~/knober/knober.py
+pkill -f knober.daemon
+knober
 ```
 
 Only one copy can run at a time. If one is already running, a second one exits
@@ -347,7 +380,7 @@ immediately without a message. So if your code changes don't seem to take
 effect, check that the old copy really stopped:
 
 ```sh
-ps -eo pid,lstart,args | grep '[k]nober.py'
+ps -eo pid,lstart,args | grep '[k]nober.daemon'
 ```
 
 ### Pressing the knob doesn't open the menu
@@ -355,7 +388,7 @@ ps -eo pid,lstart,args | grep '[k]nober.py'
 - Check that knober is running (the command above).
 - Check the key name with `wev`. If it isn't `XF86AudioMute`, change the third
   bind in `hyprland.lua`.
-- Run `~/knober/knober-ctl press` by hand. If the menu opens, the problem is the
+- Run `knober-ctl press` by hand. If the menu opens, the problem is the
   Hyprland bind, not knober.
 
 ### Next / Previous track does nothing
@@ -391,14 +424,14 @@ you can ignore them.
 ## How it works
 
 ```
- knob ──▶ Hyprland bind ──▶ knober-ctl up|down|press ──UNIX socket──▶ knober.py ──▶ pie menu
+ knob ──▶ Hyprland bind ──▶ knober-ctl up|down|press ──UNIX socket──▶ knober ──▶ pie menu
                                      │                                     │
                                      └─ daemon not running:                ├─ wpctl (volume, mute)
                                         plain wpctl fallback               ├─ playerctl + busctl (@media)
                                                                            └─ any shell command
 ```
 
-- **`knober.py`** is the background program. It is a GTK4 application whose window
+- **`knober`** (`src/knober/daemon.py`) is the background program. It is a GTK4 application whose window
   is a **layer-shell overlay** anchored to the bottom-right corner. Its keyboard
   mode is "none", so it never takes focus from your apps, and its input region is
   empty, so mouse clicks pass through it. The pie is drawn with cairo and the text
@@ -406,22 +439,27 @@ you can ignore them.
 - It listens on a UNIX datagram socket at `$XDG_RUNTIME_DIR/knober.sock` and acts
   on the commands it receives. The menu window is only hidden between uses, not
   destroyed, so opening it is instant.
-- **`knober-ctl`** is a tiny client that sends one word to that socket. It is
+- **`knober-ctl`** (`src/knober/ctl.py`) is a tiny client that sends one word to that socket. It is
   started on every knob click, so it imports nothing heavy.
 - **LD_PRELOAD:** gtk4-layer-shell must load before `libwayland-client`, which
-  Python can't guarantee. `knober.py` therefore re-launches itself once with
-  `LD_PRELOAD=/usr/lib/libgtk4-layer-shell.so`.
+  Python can't guarantee. The daemon therefore finds the library by name and
+  re-launches itself once (as `python -m knober.daemon`) with it in `LD_PRELOAD`.
+  That is why the process shows up as `python3 -m knober.daemon`.
 
 ### Files
 
 | File | Purpose |
 |---|---|
-| `knober.py` | The background program: menu, drawing, config, actions |
-| `knober-ctl` | Client called from the Hyprland binds |
-| `config.example.toml` | Commented reference config with every setting |
+| `src/knober/daemon.py` | The background program: menu, drawing, config, actions |
+| `src/knober/ctl.py` | `knober-ctl`: the client called from the Hyprland binds |
+| `src/knober/__init__.py` | Version number and socket path (shared by both) |
+| `src/knober/config.example.toml` | Commented reference config with every setting |
+| `knober`, `knober-ctl` | Launchers to run from a checkout without installing |
+| `pyproject.toml` | Python package metadata and the two commands |
+| `packaging/arch/PKGBUILD` | Arch Linux package recipe |
 | `~/.config/knober/config.toml` | Your settings (not in this repo) |
 
-### Code map (`knober.py`)
+### Code map (`src/knober/daemon.py`)
 
 | Part | What it does |
 |---|---|
